@@ -12,6 +12,11 @@
 
 
 #include "mix.h"
+#include <stdlib.h>
+
+#define LOCAL_SIZE 16
+#define KERNEL_NAME "mymix"
+#define MIN(a,b) ((a) < (b) ? (a) : (b))
 
 
 // ---------------------------------------------------------------------
@@ -23,8 +28,74 @@ void mix(unsigned char*  in1, unsigned  w1, unsigned  h1,
          unsigned char*  in2, unsigned  w2, unsigned  h2,
          unsigned char** out, unsigned* ow, unsigned* oh,
          clut_device* dev, double* td) {
+	
+	int       err;      // error code
+    cl_kernel kernel;   // execution kernel
+    cl_mem din1;
+    cl_mem    din2;      // input matrix on device
+    cl_mem    dout;     // output matrix on device
+    cl_event  evt;      // performance measurement event
+    
+    *oh=MIN(h1,h2);
+    *ow=MIN(w1,w2);
+    
+    *out=malloc((*ow)*(*oh)*sizeof(unsigned char));
+    if (*out == NULL) clut_panic("failed to allocate output matrix on host");
 
-    // scrivi la soluzione qui...
+    // create the compute kernel
+    kernel = clCreateKernel(dev->program, KERNEL_NAME, &err);
+    clut_check_err(err, "failed to create kernel");
+
+    // allocate input matrix on device as a copy of input matrix on host
+    din1 = clCreateBuffer(dev->context, 
+                         CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, 
+                         h1*w1*sizeof(unsigned char), in1, NULL);
+    if (!din1) clut_panic("failed to allocate input matrix on device memory");
+    
+    din2 = clCreateBuffer(dev->context, 
+                         CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, 
+                         h2*w2*sizeof(unsigned char), in2, NULL);
+    if (!din2) clut_panic("failed to allocate input matrix on device memory");
+
+    // allocate output matrix on device
+    dout = clCreateBuffer(dev->context, 
+                          CL_MEM_WRITE_ONLY, 
+                          (*oh)*(*ow)*sizeof(unsigned char), NULL, NULL);
+    if (!dout) clut_panic("failed to allocate output matrix on device memory");
+
+    // set the arguments to our compute kernel
+    err  = clSetKernelArg(kernel, 0, sizeof(cl_mem), &din1);
+    err |= clSetKernelArg(kernel, 1, sizeof(cl_mem), &din2);
+    err |= clSetKernelArg(kernel, 2, sizeof(cl_mem), &dout);
+    err |= clSetKernelArg(kernel, 3, sizeof(int), &w1);
+    err |= clSetKernelArg(kernel, 4, sizeof(int), &w2);
+    err |= clSetKernelArg(kernel, 5, sizeof(int), ow);
+    err |= clSetKernelArg(kernel, 6, sizeof(int), oh);
+    clut_check_err(err, "failed to set kernel arguments");
+
+    // execute the kernel over the range of our 2D input data set
+    size_t local_dim[]  = { LOCAL_SIZE, LOCAL_SIZE };
+    size_t global_dim[] = { *ow, *oh };
+    global_dim[0] = ((global_dim[0]+LOCAL_SIZE-1)/LOCAL_SIZE)*LOCAL_SIZE; // round up
+    global_dim[1] = ((global_dim[1]+LOCAL_SIZE-1)/LOCAL_SIZE)*LOCAL_SIZE; // round up
+
+    err = clEnqueueNDRangeKernel(dev->queue, kernel, 2, 
+                                 NULL, global_dim, local_dim, 0, NULL, &evt);
+    clut_check_err(err, "failed to execute kernel");
+
+    // copy result from device to host
+    err = clEnqueueReadBuffer(dev->queue, dout, CL_TRUE, 0, 
+                              (*oh)*(*ow)*sizeof(unsigned char), *out, 0, NULL, NULL);
+    clut_check_err(err, "failed to read output result");
+
+    // return kernel execution time
+    *td = clut_get_duration(evt);
+
+    // cleanup
+    clReleaseMemObject(din1);
+    clReleaseMemObject(din2);
+    clReleaseMemObject(dout);
+    clReleaseKernel(kernel);
 }
 
 
