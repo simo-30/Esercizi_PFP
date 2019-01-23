@@ -12,19 +12,47 @@
 
 
 #include "inrange.h"
+#include <immintrin.h>
 
-
+/**
+ * di seguito dichiaro alcune macro per la gestione più veloce della vettorizzazione
+ **/
+#define VEC __m128i
+#define LOAD _mm_loadu_si128
+#define STEP 8
+#define CMP_GT _mm_cmpgt_epi16
+#define CMP_EQ _mm_cmpeq_epi16
+#define TEST _mm_test_all_ones
+#define ADD _mm_add_epi16
 // ---------------------------------------------------------------------
 // inrange
 // ---------------------------------------------------------------------
 // SSE version
 
-int inrange(const short* min, unsigned minn,
-            const short* v,   unsigned n,
-            const short* max, unsigned maxn) {
+int minimo(unsigned x, unsigned y) {
+	if (x<y) return x;
+	else return y;
+}
 
-    // scrivere la soluzione qui...
-
+int inrange(const short* min, unsigned minn, const short* v,   unsigned n, const short* max, unsigned maxn) {
+	VEC vmin, vmax, vv, cmp, cmp2;
+	int i, len=minimo(minn, minimo(n, maxn));
+	for (i=0; i+STEP<len; i+=STEP) {
+		vmin=LOAD((const VEC*)(min+i));
+		vmax=LOAD((const VEC*)(max+i));
+		vv=LOAD((const VEC*)(v+i));
+		cmp=CMP_GT(vv, vmin);
+		cmp2=CMP_EQ(vv, vmin);
+		cmp=ADD(cmp, cmp2);
+		if (!TEST(cmp)) return 0;
+		cmp=CMP_GT(vmax, vv);
+		cmp2=CMP_EQ(vv, vmax);
+		cmp=ADD(cmp, cmp2);
+		if (!TEST(cmp)) return 0;
+	}
+	for (; i<len; i++) {
+		if (v[i]<min[i] || max[i]<v[i]) return 0;
+	}
     return 1;
 }
 
