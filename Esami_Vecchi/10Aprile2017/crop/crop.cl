@@ -10,7 +10,19 @@
 //  Revision:       $Revision: 1.00 $
 
 
-// scrivere soluzione qui...
+#define IDX(x,y,w) ((y)*(w)+(x))
+
+__kernel void crop(__global unsigned char* I, 
+                   __global unsigned char* O, 
+                   int xc, int yc, int hc, int wc, int w) {
+
+    int x = get_global_id(0);
+    int y = get_global_id(1);
+
+    if (x >= wc || y >= hc) return;
+
+    O[IDX(x, y, wc)] = I[IDX(xc+x, yc+y, w)];
+}
 
 
 // Copyright (C) 2017 -- --
